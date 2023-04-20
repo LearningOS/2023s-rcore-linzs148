@@ -8,6 +8,10 @@ os/src/link_app.S
 os/last-*
 os/Cargo.lock
 os/.gdb_history
+user/build
+user/target/*
+user/.idea/*
+user/Cargo.lock
 easy-fs/Cargo.lock
 easy-fs/target/*
 easy-fs-fuse/Cargo.lock
@@ -15,5 +19,8 @@ easy-fs-fuse/target/*
 tools/
 pushall.sh
 *.bak
-
-user/*
+qemu-7.0.0/
+riscv64-unknown-elf-gcc-8.3.0-2020.04.1-x86_64-linux-ubuntu14/
+**/target/
+*.tar.gz
+*.tar.xz
