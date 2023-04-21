@@ -14,9 +14,10 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
-use crate::config::MAX_APP_NUM;
+use crate::config::{MAX_APP_NUM, MAX_SYSCALL_NUM};
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
+use crate::timer::get_time_ms;
 use lazy_static::*;
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
@@ -44,7 +45,27 @@ pub struct TaskManagerInner {
     /// task list
     tasks: [TaskControlBlock; MAX_APP_NUM],
     /// id of current `Running` task
-    current_task: usize,
+    current: usize,
+    /// task infi list
+    infos: [TaskInfo; MAX_APP_NUM],
+}
+
+/// infomation about task
+#[derive(Copy, Clone)]
+pub struct TaskInfo {
+    /// task first scheduled time
+    pub first_scheduled_time: Option<usize>,
+    /// task syscall counter
+    pub syscall_counter: [u32; MAX_SYSCALL_NUM],
+}
+
+impl TaskInfo {
+    fn new() -> Self {
+        TaskInfo {
+            first_scheduled_time: None,
+            syscall_counter: [0; MAX_SYSCALL_NUM],
+        }
+    }
 }
 
 lazy_static! {
@@ -64,7 +85,8 @@ lazy_static! {
             inner: unsafe {
                 UPSafeCell::new(TaskManagerInner {
                     tasks,
-                    current_task: 0,
+                    current: 0,
+                    infos: [TaskInfo::new(); MAX_APP_NUM]
                 })
             },
         }
@@ -81,6 +103,8 @@ impl TaskManager {
         let task0 = &mut inner.tasks[0];
         task0.task_status = TaskStatus::Running;
         let next_task_cx_ptr = &task0.task_cx as *const TaskContext;
+        let info0 = &mut inner.infos[0];
+        info0.first_scheduled_time = Some(get_time_ms());
         drop(inner);
         let mut _unused = TaskContext::zero_init();
         // before this, we should drop local variables that must be dropped manually
@@ -93,14 +117,14 @@ impl TaskManager {
     /// Change the status of current `Running` task into `Ready`.
     fn mark_current_suspended(&self) {
         let mut inner = self.inner.exclusive_access();
-        let current = inner.current_task;
+        let current = inner.current;
         inner.tasks[current].task_status = TaskStatus::Ready;
     }
 
     /// Change the status of current `Running` task into `Exited`.
     fn mark_current_exited(&self) {
         let mut inner = self.inner.exclusive_access();
-        let current = inner.current_task;
+        let current = inner.current;
         inner.tasks[current].task_status = TaskStatus::Exited;
     }
 
@@ -109,7 +133,7 @@ impl TaskManager {
     /// In this case, we only return the first `Ready` task in task list.
     fn find_next_task(&self) -> Option<usize> {
         let inner = self.inner.exclusive_access();
-        let current = inner.current_task;
+        let current = inner.current;
         (current + 1..current + self.num_app + 1)
             .map(|id| id % self.num_app)
             .find(|id| inner.tasks[*id].task_status == TaskStatus::Ready)
@@ -120,20 +144,35 @@ impl TaskManager {
     fn run_next_task(&self) {
         if let Some(next) = self.find_next_task() {
             let mut inner = self.inner.exclusive_access();
-            let current = inner.current_task;
+            let current = inner.current;
             inner.tasks[next].task_status = TaskStatus::Running;
-            inner.current_task = next;
-            let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
+            inner.infos[next]
+                .first_scheduled_time
+                .get_or_insert(get_time_ms());
+            inner.current = next;
+            let current_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
             drop(inner);
             // before this, we should drop local variables that must be dropped manually
             unsafe {
-                __switch(current_task_cx_ptr, next_task_cx_ptr);
+                __switch(current_cx_ptr, next_task_cx_ptr);
             }
             // go back to user mode
         } else {
             panic!("All applications completed!");
         }
+    }
+
+    fn increase_syscall_counter(&self, syscall_id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current;
+        inner.infos[current].syscall_counter[syscall_id] += 1;
+    }
+
+    fn get_task_info(&self) -> TaskInfo {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current;
+        inner.infos[current]
     }
 }
 
@@ -168,4 +207,14 @@ pub fn suspend_current_and_run_next() {
 pub fn exit_current_and_run_next() {
     mark_current_exited();
     run_next_task();
+}
+
+/// increase current syscall counter
+pub fn increase_syscall_counter(syscall_id: usize) {
+    TASK_MANAGER.increase_syscall_counter(syscall_id);
+}
+
+/// get current syscall info
+pub fn get_task_info() -> TaskInfo {
+    TASK_MANAGER.get_task_info()
 }
