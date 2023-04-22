@@ -1,6 +1,6 @@
 //! Implementation of [`MapArea`] and [`MemorySet`].
 
-use super::{frame_alloc, FrameTracker};
+use super::{frame_alloc, translated_byte_buffer, FrameTracker};
 use super::{PTEFlags, PageTable, PageTableEntry};
 use super::{PhysAddr, PhysPageNum, VirtAddr, VirtPageNum};
 use super::{StepByOne, VPNRange};
@@ -409,4 +409,21 @@ pub fn remap_test() {
         .unwrap()
         .executable(),);
     println!("remap_test passed!");
+}
+
+/// write content to physical memory
+pub fn write_to_physical<T>(token: usize, content: T, dst: *mut T) {
+    let size = core::mem::size_of::<T>();
+    let buffers = translated_byte_buffer(token, dst as *mut u8, size);
+    let mut prefix: usize = 0;
+    buffers.into_iter().for_each(|buffer| {
+        let len = buffer.len();
+        unsafe {
+            buffer.copy_from_slice(core::slice::from_raw_parts(
+                (((&content as *const T) as usize) + prefix) as *const u8,
+                len,
+            ));
+        }
+        prefix += len;
+    });
 }

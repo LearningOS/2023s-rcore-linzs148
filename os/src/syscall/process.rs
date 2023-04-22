@@ -1,11 +1,12 @@
 //! Process management syscalls
 use crate::{
     config::MAX_SYSCALL_NUM,
+    mm::write_to_physical,
     task::{
-        change_program_brk, exit_current_and_run_next, get_task_info, suspend_current_and_run_next,
-        TaskStatus,
+        change_program_brk, current_user_token, exit_current_and_run_next, get_task_info,
+        suspend_current_and_run_next, TaskStatus,
     },
-    timer::get_time_ms,
+    timer::{get_time_ms, get_time_us},
 };
 
 #[repr(C)]
@@ -45,7 +46,13 @@ pub fn sys_yield() -> isize {
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
 pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
     trace!("kernel: sys_get_time");
-    -1
+    let us = get_time_us();
+    let ts = TimeVal {
+        sec: us / 1_000_000,
+        usec: us % 1_000_000,
+    };
+    write_to_physical(current_user_token(), ts, _ts);
+    0
 }
 
 /// YOUR JOB: Finish sys_task_info to pass testcases
@@ -54,18 +61,14 @@ pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
 pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
     trace!("kernel: sys_task_info");
     let task_info = get_task_info();
-    if let Some(first_scheduled_time) = task_info.first_scheduled_time {
-        unsafe {
-            *_ti = TaskInfo {
-                status: TaskStatus::Running,
-                time: get_time_ms() - first_scheduled_time,
-                syscall_times: task_info.syscall_counter,
-            }
-        }
-        0
-    } else {
-        -1
-    }
+    let first_scheduled_time = task_info.first_scheduled_time.unwrap();
+    let ti = TaskInfo {
+        status: TaskStatus::Running,
+        time: get_time_ms() - first_scheduled_time,
+        syscall_times: task_info.syscall_counter,
+    };
+    write_to_physical(current_user_token(), ti, _ti);
+    0
 }
 
 // YOUR JOB: Implement mmap.
@@ -79,6 +82,7 @@ pub fn sys_munmap(_start: usize, _len: usize) -> isize {
     trace!("kernel: sys_munmap NOT IMPLEMENTED YET!");
     -1
 }
+
 /// change data segment size
 pub fn sys_sbrk(size: i32) -> isize {
     trace!("kernel: sys_sbrk");
