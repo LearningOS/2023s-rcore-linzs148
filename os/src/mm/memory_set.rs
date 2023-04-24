@@ -249,7 +249,7 @@ impl MemorySet {
     }
 
     /// remove the area from memory set
-    pub fn remove_framed_area(&mut self, va_start: VirtAddr, va_end: VirtAddr) -> bool {
+    pub fn remove_framed_area(&mut self, va_start: VirtAddr, va_end: VirtAddr) {
         let vpn_start = va_start.floor();
         let vpn_end = va_end.ceil();
         for i in 0..self.areas.len() {
@@ -268,10 +268,9 @@ impl MemorySet {
                 if vpn_range.get_end() != vpn_end {
                     self.insert_framed_area(va_end, VirtAddr::from(vpn_range.get_end()), perm);
                 }
-                return true;
+                return;
             }
         }
-        false
     }
 
     /// append the area to new_end
