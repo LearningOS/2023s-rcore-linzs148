@@ -4,11 +4,15 @@ use alloc::sync::Arc;
 use crate::{
     config::MAX_SYSCALL_NUM,
     loader::get_app_data_by_name,
-    mm::{translated_refmut, translated_str},
-    task::{
-        add_task, current_task, current_user_token, exit_current_and_run_next,
-        suspend_current_and_run_next, TaskStatus,
+    mm::{
+        translated_refmut, translated_str, virtual_page_mapped, write_to_physical, VPNRange,
+        VirtAddr,
     },
+    task::{
+        add_task, current_task, current_task_info, current_user_token, exit_current_and_run_next,
+        insert_to_memset, remove_from_memset, suspend_current_and_run_next, TaskStatus,
+    },
+    timer::{get_time_ms, get_time_us},
 };
 
 #[repr(C)]
@@ -79,7 +83,11 @@ pub fn sys_exec(path: *const u8) -> isize {
 /// If there is not a child process whose pid is same as given, return -1.
 /// Else if there is a child process but it is still running, return -2.
 pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
-    trace!("kernel::pid[{}] sys_waitpid [{}]", current_task().unwrap().pid.0, pid);
+    trace!(
+        "kernel::pid[{}] sys_waitpid [{}]",
+        current_task().unwrap().pid.0,
+        pid
+    );
     let task = current_task().unwrap();
     // find a child process
 
@@ -118,11 +126,14 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
 pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_get_time NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    trace!("kernel:pid[{}] sys_get_time", current_task().unwrap().pid.0);
+    let us = get_time_us();
+    let ts = TimeVal {
+        sec: us / 1_000_000,
+        usec: us % 1_000_000,
+    };
+    write_to_physical(current_user_token(), ts, _ts);
+    0
 }
 
 /// YOUR JOB: Finish sys_task_info to pass testcases
@@ -130,10 +141,17 @@ pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
 /// HINT: What if [`TaskInfo`] is splitted by two pages ?
 pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
     trace!(
-        "kernel:pid[{}] sys_task_info NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_task_info",
         current_task().unwrap().pid.0
     );
-    -1
+    let (first_scheduled_time, syscall_counter) = current_task_info();
+    let ti = TaskInfo {
+        status: TaskStatus::Running,
+        time: get_time_ms() - first_scheduled_time,
+        syscall_times: syscall_counter,
+    };
+    write_to_physical(current_user_token(), ti, _ti);
+    0
 }
 
 /// YOUR JOB: Implement mmap.
@@ -142,7 +160,30 @@ pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
         "kernel:pid[{}] sys_mmap NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    if _port & !0x7 != 0 || _port & 0x7 == 0 {
+        error!("sys_mmap: _port is not valid");
+        return -1;
+    }
+    let va_start = VirtAddr::from(_start);
+    let va_end = VirtAddr::from(_start + _len);
+    if !va_start.aligned() {
+        error!("sys_mmap: _start is not aligned");
+        return -1;
+    }
+    let vpn_start = va_start.floor();
+    let vpn_end = va_end.ceil();
+    let vpn_range = VPNRange::new(vpn_start, vpn_end);
+    for vpn in vpn_range {
+        if virtual_page_mapped(current_user_token(), vpn) {
+            error!(
+                "sys_mmap: virtual page {:?} has been mapped to physival page",
+                vpn
+            );
+            return -1;
+        }
+    }
+    insert_to_memset(va_start, va_end, _port as u8);
+    0
 }
 
 /// YOUR JOB: Implement munmap.
@@ -151,7 +192,26 @@ pub fn sys_munmap(_start: usize, _len: usize) -> isize {
         "kernel:pid[{}] sys_munmap NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    let va_start = VirtAddr::from(_start);
+    let va_end = VirtAddr::from(_start + _len);
+    if !va_start.aligned() {
+        error!("sys_munmap: _start is not aligned");
+        return -1;
+    }
+    let vpn_start = va_start.floor();
+    let vpn_end = va_end.ceil();
+    let vpn_range = VPNRange::new(vpn_start, vpn_end);
+    for vpn in vpn_range {
+        if !virtual_page_mapped(current_user_token(), vpn) {
+            error!(
+                "sys_munmap: virtual page {:?} has not been mapped to physival page",
+                vpn
+            );
+            return -1;
+        }
+    }
+    remove_from_memset(va_start, va_end);
+    0
 }
 
 /// change data segment size

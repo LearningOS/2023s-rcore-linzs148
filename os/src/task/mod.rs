@@ -32,8 +32,8 @@ pub use context::TaskContext;
 pub use id::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
 pub use manager::add_task;
 pub use processor::{
-    current_task, current_trap_cx, current_user_token, run_tasks, schedule, take_current_task,
-    Processor,
+    current_task, current_task_info, current_trap_cx, current_user_token, increase_syscall_counter,
+    insert_to_memset, remove_from_memset, run_tasks, schedule, take_current_task, Processor,
 };
 /// Suspend the current 'Running' task and run the next task in task list.
 pub fn suspend_current_and_run_next() {
@@ -107,7 +107,7 @@ lazy_static! {
     /// the name "initproc" may be changed to any other app name like "usertests",
     /// but we have user_shell, so we don't need to change it.
     pub static ref INITPROC: Arc<TaskControlBlock> = Arc::new(TaskControlBlock::new(
-        get_app_data_by_name("ch5b_initproc").unwrap()
+        get_app_data_by_name("ch4_unmap2").unwrap()
     ));
 }
 

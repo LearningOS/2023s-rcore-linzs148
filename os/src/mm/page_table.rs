@@ -213,3 +213,12 @@ pub fn translated_refmut<T>(token: usize, ptr: *mut T) -> &'static mut T {
         .unwrap()
         .get_mut()
 }
+
+/// Whether the VirtPage has been mapped to PhysPage
+pub fn virtual_page_mapped(token: usize, vpn: VirtPageNum) -> bool {
+    let page_table = PageTable::from_token(token);
+    match page_table.translate(vpn) {
+        Some(pte) => pte.is_valid(),
+        None => false,
+    }
+}
