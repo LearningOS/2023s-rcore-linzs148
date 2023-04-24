@@ -1,10 +1,10 @@
 //! Process management syscalls
 use crate::{
     config::MAX_SYSCALL_NUM,
-    mm::write_to_physical,
+    mm::{virtual_page_mapped, write_to_physical, VPNRange, VirtAddr},
     task::{
         change_program_brk, current_user_token, exit_current_and_run_next, get_task_info,
-        suspend_current_and_run_next, TaskStatus,
+        insert_to_memset, remove_from_memset, suspend_current_and_run_next, TaskStatus,
     },
     timer::{get_time_ms, get_time_us},
 };
@@ -73,14 +73,56 @@ pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
 
 // YOUR JOB: Implement mmap.
 pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
-    trace!("kernel: sys_mmap NOT IMPLEMENTED YET!");
-    -1
+    trace!("kernel: sys_mmap");
+    if _port & !0x7 != 0 || _port & 0x7 == 0 {
+        error!("sys_mmap: _port is not valid");
+        return -1;
+    }
+    let va_start = VirtAddr::from(_start);
+    let va_end = VirtAddr::from(_start + _len);
+    if !va_start.aligned() {
+        error!("sys_mmap: _start is not aligned");
+        return -1;
+    }
+    let vpn_start = va_start.floor();
+    let vpn_end = va_end.ceil();
+    let vpn_range = VPNRange::new(vpn_start, vpn_end);
+    for vpn in vpn_range {
+        if virtual_page_mapped(current_user_token(), vpn) {
+            error!(
+                "sys_mmap: virtual page {:?} has been mapped to physival page",
+                vpn
+            );
+            return -1;
+        }
+    }
+    insert_to_memset(va_start, va_end, _port as u8);
+    0
 }
 
 // YOUR JOB: Implement munmap.
 pub fn sys_munmap(_start: usize, _len: usize) -> isize {
-    trace!("kernel: sys_munmap NOT IMPLEMENTED YET!");
-    -1
+    trace!("kernel: sys_munmap");
+    let va_start = VirtAddr::from(_start);
+    let va_end = VirtAddr::from(_start + _len);
+    if !va_start.aligned() {
+        error!("sys_munmap: _start is not aligned");
+        return -1;
+    }
+    let vpn_start = va_start.floor();
+    let vpn_end = va_end.ceil();
+    let vpn_range = VPNRange::new(vpn_start, vpn_end);
+    for vpn in vpn_range {
+        if !virtual_page_mapped(current_user_token(), vpn) {
+            error!(
+                "sys_munmap: virtual page {:?} has not been mapped to physival page",
+                vpn
+            );
+            return -1;
+        }
+    }
+    remove_from_memset(va_start, va_end);
+    0
 }
 
 /// change data segment size

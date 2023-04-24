@@ -16,6 +16,7 @@ mod task;
 
 use crate::config::MAX_SYSCALL_NUM;
 use crate::loader::{get_app_data, get_num_app};
+use crate::mm::{MapPermission, VirtAddr};
 use crate::sync::UPSafeCell;
 use crate::timer::get_time_ms;
 use crate::trap::TrapContext;
@@ -195,6 +196,30 @@ impl TaskManager {
         let current = inner.current;
         inner.infos[current]
     }
+
+    fn insert_to_memset(&self, va_start: VirtAddr, va_end: VirtAddr, flags: u8) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current;
+        let memset = &mut inner.tasks[current].memory_set;
+        let mut perm = MapPermission::U;
+        if (flags & 0x1) > 0 {
+            perm |= MapPermission::R;
+        }
+        if (flags & 0x2) > 0 {
+            perm |= MapPermission::W;
+        }
+        if (flags & 0x4) > 0 {
+            perm |= MapPermission::X;
+        }
+        memset.insert_framed_area(va_start, va_end, perm);
+    }
+
+    fn remove_from_memset(&self, va_start: VirtAddr, va_end: VirtAddr) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current;
+        let memset = &mut inner.tasks[current].memory_set;
+        memset.remove_framed_area(va_start, va_end);
+    }
 }
 
 /// Run the first task in task list.
@@ -253,4 +278,14 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// insert virtual srea to memory set
+pub fn insert_to_memset(va_start: VirtAddr, va_end: VirtAddr, flags: u8) {
+    TASK_MANAGER.insert_to_memset(va_start, va_end, flags);
+}
+
+/// remove virtual srea from memory set
+pub fn remove_from_memset(va_start: VirtAddr, va_end: VirtAddr) {
+    TASK_MANAGER.remove_from_memset(va_start, va_end)
 }

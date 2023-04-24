@@ -248,6 +248,32 @@ impl MemorySet {
         }
     }
 
+    /// remove the area from memory set
+    pub fn remove_framed_area(&mut self, va_start: VirtAddr, va_end: VirtAddr) -> bool {
+        let vpn_start = va_start.floor();
+        let vpn_end = va_end.ceil();
+        for i in 0..self.areas.len() {
+            let area = &mut self.areas[i];
+            let vpn_range = area.vpn_range;
+            let perm = area.map_perm;
+            if vpn_range.get_start() <= vpn_start && vpn_end <= vpn_range.get_end() {
+                if vpn_range.get_start() == vpn_start {
+                    for vpn in vpn_range {
+                        area.unmap_one(&mut self.page_table, vpn)
+                    }
+                    self.areas.remove(i);
+                } else {
+                    area.shrink_to(&mut self.page_table, vpn_start);
+                }
+                if vpn_range.get_end() != vpn_end {
+                    self.insert_framed_area(va_end, VirtAddr::from(vpn_range.get_end()), perm);
+                }
+                return true;
+            }
+        }
+        false
+    }
+
     /// append the area to new_end
     #[allow(unused)]
     pub fn append_to(&mut self, start: VirtAddr, new_end: VirtAddr) -> bool {
