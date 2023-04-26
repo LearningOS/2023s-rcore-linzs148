@@ -7,7 +7,6 @@
 use super::__switch;
 use super::{fetch_task, TaskStatus};
 use super::{TaskContext, TaskControlBlock};
-use crate::config::MAX_SYSCALL_NUM;
 use crate::mm::{MapPermission, VirtAddr};
 use crate::sync::UPSafeCell;
 use crate::timer::get_time_ms;
@@ -102,16 +101,6 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
         .unwrap()
         .inner_exclusive_access()
         .get_trap_cx()
-}
-
-///Get the first scheduled time and syscall counter of current task
-pub fn current_task_info() -> (usize, [u32; MAX_SYSCALL_NUM]) {
-    let task = current_task().unwrap();
-    let mut inner = task.inner_exclusive_access();
-    (
-        inner.get_first_scheduled_time(),
-        inner.get_syscall_counter().clone(),
-    )
 }
 
 ///Increase the syscall counter of current task

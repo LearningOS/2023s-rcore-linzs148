@@ -69,6 +69,12 @@ pub struct TaskControlBlockInner {
     /// Program break
     pub program_brk: usize,
 
+    /// priority
+    pub priority: u8,
+
+    /// strade
+    pub strade: u8,
+
     /// task first scheduled time
     pub first_scheduled_time: Option<usize>,
 
@@ -136,6 +142,8 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: user_sp,
                     program_brk: user_sp,
+                    priority: 16,
+                    strade: 0,
                     first_scheduled_time: None,
                     syscall_counter: [0; MAX_SYSCALL_NUM],
                 })
@@ -211,6 +219,8 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
+                    priority: 16,
+                    strade: 0,
                     first_scheduled_time: None,
                     syscall_counter: [0; MAX_SYSCALL_NUM],
                 })
@@ -253,6 +263,8 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: user_sp,
                     program_brk: user_sp,
+                    priority: 16,
+                    strade: 0,
                     first_scheduled_time: None,
                     syscall_counter: [0; MAX_SYSCALL_NUM],
                 })

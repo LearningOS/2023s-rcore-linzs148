@@ -9,8 +9,8 @@ use crate::{
         VirtAddr,
     },
     task::{
-        add_task, current_task, current_task_info, current_user_token, exit_current_and_run_next,
-        insert_to_memset, remove_from_memset, suspend_current_and_run_next, TaskStatus,
+        add_task, current_task, current_user_token, exit_current_and_run_next, insert_to_memset,
+        remove_from_memset, suspend_current_and_run_next, TaskStatus,
     },
     timer::{get_time_ms, get_time_us},
 };
@@ -144,7 +144,10 @@ pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
         "kernel:pid[{}] sys_task_info",
         current_task().unwrap().pid.0
     );
-    let (first_scheduled_time, syscall_counter) = current_task_info();
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    let first_scheduled_time = inner.get_first_scheduled_time();
+    let syscall_counter = inner.get_syscall_counter().clone();
     let ti = TaskInfo {
         status: TaskStatus::Running,
         time: get_time_ms() - first_scheduled_time,
@@ -245,8 +248,15 @@ pub fn sys_spawn(_path: *const u8) -> isize {
 // YOUR JOB: Set task priority.
 pub fn sys_set_priority(_prio: isize) -> isize {
     trace!(
-        "kernel:pid[{}] sys_set_priority NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_set_priority",
         current_task().unwrap().pid.0
     );
-    -1
+    if _prio > 1 {
+        let task = current_task().unwrap();
+        let mut inner = task.inner_exclusive_access();
+        inner.priority = _prio as u8;
+        _prio
+    } else {
+        -1
+    }
 }
