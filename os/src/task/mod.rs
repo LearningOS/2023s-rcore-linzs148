@@ -22,6 +22,7 @@ mod switch;
 #[allow(rustdoc::private_intra_doc_links)]
 mod task;
 
+use crate::config::IDLE_PID;
 use crate::fs::{open_file, OpenFlags};
 use alloc::sync::Arc;
 pub use context::TaskContext;
@@ -33,8 +34,8 @@ pub use task::{TaskControlBlock, TaskStatus};
 pub use id::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
 pub use manager::add_task;
 pub use processor::{
-    current_task, current_trap_cx, current_user_token, run_tasks, schedule, take_current_task,
-    Processor,
+    current_task, current_trap_cx, current_user_token, increase_syscall_counter, insert_to_memset,
+    remove_from_memset, run_tasks, schedule, take_current_task, Processor,
 };
 /// Suspend the current 'Running' task and run the next task in task list.
 pub fn suspend_current_and_run_next() {
@@ -54,9 +55,6 @@ pub fn suspend_current_and_run_next() {
     // jump to scheduling cycle
     schedule(task_cx_ptr);
 }
-
-/// pid of usertests app in make run TEST=1
-pub const IDLE_PID: usize = 0;
 
 /// Exit the current 'Running' task and run the next task in task list.
 pub fn exit_current_and_run_next(exit_code: i32) {

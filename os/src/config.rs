@@ -25,3 +25,7 @@ pub const CLOCK_FREQ: usize = 12500000;
 pub const MEMORY_END: usize = 0x88000000;
 /// The base address of control registers in Virtio_Block device
 pub const MMIO: &[(usize, usize)] = &[(0x10001000, 0x1000)];
+/// pid of usertests app in make run TEST=1
+pub const IDLE_PID: usize = 0;
+/// p.pass = BIG_STRIDE / p.priority
+pub const BIG_STRIDE: u8 = 255;

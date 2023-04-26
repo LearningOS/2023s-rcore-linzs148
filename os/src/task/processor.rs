@@ -7,7 +7,9 @@
 use super::__switch;
 use super::{fetch_task, TaskStatus};
 use super::{TaskContext, TaskControlBlock};
+use crate::mm::{MapPermission, VirtAddr};
 use crate::sync::UPSafeCell;
+use crate::timer::get_time_ms;
 use crate::trap::TrapContext;
 use alloc::sync::Arc;
 use lazy_static::*;
@@ -61,6 +63,7 @@ pub fn run_tasks() {
             let mut task_inner = task.inner_exclusive_access();
             let next_task_cx_ptr = &task_inner.task_cx as *const TaskContext;
             task_inner.task_status = TaskStatus::Running;
+            task_inner.first_scheduled_time.get_or_insert(get_time_ms());
             // release coming task_inner manually
             drop(task_inner);
             // release coming task TCB manually
@@ -98,6 +101,40 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
         .unwrap()
         .inner_exclusive_access()
         .get_trap_cx()
+}
+
+///Increase the syscall counter of current task
+pub fn increase_syscall_counter(syscall_id: usize) {
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    let syscall_counter = inner.get_syscall_counter();
+    syscall_counter[syscall_id] += 1;
+}
+
+///Insert virtual srea to memory set
+pub fn insert_to_memset(va_start: VirtAddr, va_end: VirtAddr, flags: u8) {
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    let memset = inner.get_memory_set();
+    let mut perm = MapPermission::U;
+    if (flags & 0x1) > 0 {
+        perm |= MapPermission::R;
+    }
+    if (flags & 0x2) > 0 {
+        perm |= MapPermission::W;
+    }
+    if (flags & 0x4) > 0 {
+        perm |= MapPermission::X;
+    }
+    memset.insert_framed_area(va_start, va_end, perm);
+}
+
+///remove virtual srea from memory set
+pub fn remove_from_memset(va_start: VirtAddr, va_end: VirtAddr) {
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    let memset = inner.get_memory_set();
+    memset.remove_framed_area(va_start, va_end);
 }
 
 ///Return to idle control flow for new scheduling
