@@ -73,6 +73,39 @@ impl Inode {
             })
         })
     }
+    /// Find inode with id under current inode by name
+    fn find_inode_with_id(&self, name: &str) -> Option<(Arc<Inode>, u32)> {
+        let fs = self.fs.lock();
+        self.read_disk_inode(|root_inode| {
+            self.find_inode_id(name, root_inode).map(|inode_id| {
+                let (block_id, block_offset) = fs.get_disk_inode_pos(inode_id);
+                (Arc::new(Self::new(
+                    block_id,
+                    block_offset,
+                    self.fs.clone(),
+                    self.block_device.clone(),
+                )), inode_id)
+            })
+        })
+    }
+    /// Get id of inode
+    pub fn get_id(&self, inode: Arc<Inode>) -> u32 {
+        let fs = self.fs.lock();
+        self.read_disk_inode(|root_inode| {
+            let file_count = (root_inode.size as usize) / DIRENT_SZ;
+            let mut dirent = DirEntry::empty();
+            let mut inode_id = 0;
+            for i in 0..file_count {
+                root_inode.read_at(DIRENT_SZ * i, dirent.as_bytes_mut(), &self.block_device);
+                let (block_id, block_offset) = fs.get_disk_inode_pos(dirent.inode_id());
+                if block_id == inode.block_id as u32 && block_offset == inode.block_offset {
+                    inode_id = dirent.inode_id();
+                    break;
+                }
+            }
+            inode_id
+        })
+    }
     /// Increase the size of a disk inode
     fn increase_size(
         &self,
@@ -137,6 +170,66 @@ impl Inode {
             self.block_device.clone(),
         )))
         // release efs lock automatically by compiler
+    }
+    /// Link path to inode
+    pub fn link(&self, src_path: &str, dst_path: &str) {
+        let (_, inode_id) = self.find_inode_with_id(src_path).unwrap();
+        let mut fs = self.fs.lock();
+        self.modify_disk_inode(|root_inode| {
+            let file_count = (root_inode.size as usize) / DIRENT_SZ;
+            let total_size = (file_count + 1) * DIRENT_SZ;
+            self.increase_size(total_size as u32, root_inode, &mut fs);
+            let dirent = DirEntry::new(dst_path, inode_id);
+            root_inode.write_at(
+                file_count * DIRENT_SZ,
+                dirent.as_bytes(),
+                &self.block_device,
+            );
+        });
+        block_cache_sync_all();
+    }
+    /// Unlink path from inode
+    pub fn unlink(&self, path: &str) {
+        let (inode, inode_id) = self.find_inode_with_id(path).unwrap();
+        self.modify_disk_inode(|root_inode|{
+            let file_count = (root_inode.size as usize) / DIRENT_SZ;
+            let mut dirent = DirEntry::empty();
+            for i in 0..file_count {
+                root_inode.read_at(DIRENT_SZ * i, dirent.as_bytes_mut(), &self.block_device);
+                if dirent.name() == path {
+                    dirent = DirEntry::empty();
+                    root_inode.write_at(
+                        DIRENT_SZ*i, 
+                        dirent.as_bytes(), 
+                        &self.block_device
+                    );
+                    break;
+                }
+            }
+        });
+        if self.count_link(inode_id) == 0 {
+            inode.clear();
+        }
+        block_cache_sync_all();
+    }
+    /// Count link of inode
+    pub fn count_link(&self, inode_id: u32) -> u32 {
+        self.read_disk_inode(|root_inode|{
+            assert!(root_inode.is_dir());
+            let file_count = (root_inode.size as usize) / DIRENT_SZ;
+            let mut dirent = DirEntry::empty();
+            let mut counter: u32 = 0;
+            for i in 0..file_count {
+                assert_eq!(
+                    root_inode.read_at(DIRENT_SZ * i, dirent.as_bytes_mut(), &self.block_device),
+                    DIRENT_SZ,
+                );
+                if dirent.inode_id() == inode_id {
+                    counter += 1;
+                }
+            }
+            counter
+        })
     }
     /// List inodes under current inode
     pub fn ls(&self) -> Vec<String> {

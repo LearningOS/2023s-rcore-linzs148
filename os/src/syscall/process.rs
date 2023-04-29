@@ -121,21 +121,22 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
 /// YOUR JOB: get time with second and microsecond
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
-pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
+pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
     trace!("kernel:pid[{}] sys_get_time", current_task().unwrap().pid.0);
     let us = get_time_us();
-    let ts = TimeVal {
+    let content = TimeVal {
         sec: us / 1_000_000,
         usec: us % 1_000_000,
     };
-    write_to_physical(current_user_token(), ts, _ts);
+    let token = current_user_token();
+    write_to_physical(token, content, ts);
     0
 }
 
 /// YOUR JOB: Finish sys_task_info to pass testcases
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TaskInfo`] is splitted by two pages ?
-pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
+pub fn sys_task_info(ti: *mut TaskInfo) -> isize {
     trace!(
         "kernel:pid[{}] sys_task_info",
         current_task().unwrap().pid.0
@@ -144,33 +145,35 @@ pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
     let mut inner = task.inner_exclusive_access();
     let first_scheduled_time = inner.get_first_scheduled_time();
     let syscall_counter = inner.get_syscall_counter().clone();
-    let ti = TaskInfo {
+    let content = TaskInfo {
         status: TaskStatus::Running,
         time: get_time_ms() - first_scheduled_time,
         syscall_times: syscall_counter,
     };
-    write_to_physical(current_user_token(), ti, _ti);
+    let token = current_user_token();
+    write_to_physical(token, content, ti);
     0
 }
 
 /// YOUR JOB: Implement mmap.
-pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
+pub fn sys_mmap(start: usize, _len: usize, _port: usize) -> isize {
     trace!("kernel:pid[{}] sys_mmap", current_task().unwrap().pid.0);
     if _port & !0x7 != 0 || _port & 0x7 == 0 {
         error!("sys_mmap: _port is not valid");
         return -1;
     }
-    let va_start = VirtAddr::from(_start);
-    let va_end = VirtAddr::from(_start + _len);
+    let va_start = VirtAddr::from(start);
+    let va_end = VirtAddr::from(start + _len);
     if !va_start.aligned() {
-        error!("sys_mmap: _start is not aligned");
+        error!("sys_mmap: start is not aligned");
         return -1;
     }
     let vpn_start = va_start.floor();
     let vpn_end = va_end.ceil();
     let vpn_range = VPNRange::new(vpn_start, vpn_end);
+    let token = current_user_token();
     for vpn in vpn_range {
-        if virtual_page_mapped(current_user_token(), vpn) {
+        if virtual_page_mapped(token, vpn) {
             error!(
                 "sys_mmap: virtual page {:?} has been mapped to physival page",
                 vpn
@@ -183,19 +186,20 @@ pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
 }
 
 /// YOUR JOB: Implement munmap.
-pub fn sys_munmap(_start: usize, _len: usize) -> isize {
+pub fn sys_munmap(start: usize, _len: usize) -> isize {
     trace!("kernel:pid[{}] sys_munmap", current_task().unwrap().pid.0);
-    let va_start = VirtAddr::from(_start);
-    let va_end = VirtAddr::from(_start + _len);
+    let va_start = VirtAddr::from(start);
+    let va_end = VirtAddr::from(start + _len);
     if !va_start.aligned() {
-        error!("sys_munmap: _start is not aligned");
+        error!("sys_munmap: start is not aligned");
         return -1;
     }
     let vpn_start = va_start.floor();
     let vpn_end = va_end.ceil();
     let vpn_range = VPNRange::new(vpn_start, vpn_end);
+    let token = current_user_token();
     for vpn in vpn_range {
-        if !virtual_page_mapped(current_user_token(), vpn) {
+        if !virtual_page_mapped(token, vpn) {
             error!(
                 "sys_munmap: virtual page {:?} has not been mapped to physival page",
                 vpn
@@ -219,9 +223,10 @@ pub fn sys_sbrk(size: i32) -> isize {
 
 /// YOUR JOB: Implement spawn.
 /// HINT: fork + exec =/= spawn
-pub fn sys_spawn(_path: *const u8) -> isize {
+pub fn sys_spawn(path: *const u8) -> isize {
     trace!("kernel:pid[{}] sys_spawn", current_task().unwrap().pid.0);
-    let path = translated_str(current_user_token(), _path);
+    let token = current_user_token();
+    let path = translated_str(token, path);
     if let Some(app_inode) = open_file(path.as_str(), OpenFlags::RDONLY) {
         let data = app_inode.read_all();
         let current_task = current_task().unwrap();
@@ -237,16 +242,16 @@ pub fn sys_spawn(_path: *const u8) -> isize {
 }
 
 // YOUR JOB: Set task priority.
-pub fn sys_set_priority(_prio: isize) -> isize {
+pub fn sys_set_priority(prio: isize) -> isize {
     trace!(
         "kernel:pid[{}] sys_set_priority",
         current_task().unwrap().pid.0
     );
-    if _prio > 1 {
+    if prio > 1 {
         let task = current_task().unwrap();
         let mut inner = task.inner_exclusive_access();
-        inner.priority = _prio as u8;
-        _prio
+        inner.priority = prio as u8;
+        prio
     } else {
         -1
     }
